@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🎙️ Voice Visualizer + Speech-to-Text</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #0f172a;
+      color: white;
+      height: 100vh;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+    }
+
+    #status {
+      font-size: 1.5rem;
+      padding: 10px 20px;
+      border-radius: 12px;
+      background: #1e293b;
+      margin-bottom: 15px;
+      transition: background 0.3s;
+    }
+
+    .speaking {
+      background: #22c55e;
+    }
+
+    .silent {
+      background: #ef4444;
+    }
+
+    .meter-container {
+      width: 80%;
+      max-width: 400px;
+      height: 20px;
+      background: #1e293b;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.6);
+      margin-bottom: 20px;
+    }
+
+    .meter {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #22c55e, #facc15, #ef4444);
+      transition: width 0.1s linear;
+    }
+
+    #waveform {
+      width: 90%;
+      max-width: 600px;
+      height: 150px;
+      background: #1e293b;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    }
+
+    #transcript {
+      margin-top: 20px;
+      font-size: 1.2rem;
+      color: #facc15;
+      padding: 10px;
+      max-width: 600px;
+      line-height: 1.5;
+      background: rgba(30, 41, 59, 0.7);
+      border-radius: 8px;
+    }
+
+    p {
+      color: #94a3b8;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎙️ Voice Visualizer + Speech-to-Text</h1>
+  <div id="status" class="silent">🤫 Silent</div>
+
+  <div class="meter-container">
+    <div id="meter" class="meter"></div>
+  </div>
+
+  <canvas id="waveform"></canvas>
+
+  <div id="transcript">🗣️ Say something...</div>
+
+  <p>Speak into your mic — see waveform, level, and live text!</p>
+
+  <script>
+    async function startVAD() {
+      const statusEl = document.getElementById("status");
+      const meterEl = document.getElementById("meter");
+      const canvas = document.getElementById("waveform");
+      const ctx = canvas.getContext("2d");
+
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        const dataArray = new Uint8Array(analyser.fftSize);
+        source.connect(analyser);
+
+        let speaking = false;
+        const threshold = 25;
+
+        function draw() {
+          analyser.getByteTimeDomainData(dataArray);
+
+          // Calculate RMS loudness
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            const value = dataArray[i] - 128;
+            sum += value * value;
+          }
+          const rms = Math.sqrt(sum / dataArray.length);
+
+          // Update VU meter
+          const level = Math.min((rms * 2).toFixed(2), 100);
+          meterEl.style.width = level + "%";
+
+          // Speaking detection
+          if (rms > threshold && !speaking) {
+            speaking = true;
+            statusEl.textContent = "🎙️ Speaking...";
+            statusEl.className = "speaking";
+          } else if (rms < threshold && speaking) {
+            speaking = false;
+            statusEl.textContent = "🤫 Silent";
+            statusEl.className = "silent";
+          }
+
+          // Draw waveform
+          ctx.fillStyle = "#1e293b";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = speaking ? "#22c55e" : "#ef4444";
+          ctx.beginPath();
+
+          const sliceWidth = canvas.width / analyser.fftSize;
+          let x = 0;
+
+          for (let i = 0; i < analyser.fftSize; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = (v * canvas.height) / 2;
+
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+
+            x += sliceWidth;
+          }
+
+          ctx.lineTo(canvas.width, canvas.height / 2);
+          ctx.stroke();
+
+          requestAnimationFrame(draw);
+        }
+
+        draw();
+      } catch (err) {
+        alert("⚠️ Microphone access denied or error: " + err);
+      }
+    }
+
+    // Start the VAD and waveform
+    startVAD();
+
+    // 🎤 Speech-to-Text Recognition
+    const recognition = new webkitSpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    const transcriptDiv = document.getElementById("transcript");
+
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        transcript += event.results[i][0].transcript;
+      }
+      transcriptDiv.textContent = "🗣️ " + transcript;
+    };
+
+    recognition.onerror = (err) => {
+      console.error("Speech recognition error:", err);
+    };
+
+    recognition.start();
+  </script>
+</body>
+</html>
